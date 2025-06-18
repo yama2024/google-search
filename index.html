@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google検索コマンド インタラクティブ・ガイド (Gemini API搭載)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Cool Gray & Blue -->
+    <!-- Application Structure Plan: A single-page dashboard with a sticky sidebar for navigation and a main content area. This structure is ideal for a reference guide, allowing users to quickly navigate to specific information. Key interactions include: 1) Categorized navigation. 2) An interactive "Try It" feature. 3) A dynamic reliability chart. 4) A Gemini-powered AI Query Builder. 5) A new Interactive Query Builder for manually constructing complex queries. 6) Tabbed sections for advanced scenarios. This task-oriented design transforms passive reading into active, hands-on learning. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: Operator reliability status (Working, Unreliable, Deprecated).
+        - Goal: To provide a quick, visual summary of which commands are current and trustworthy.
+        - Viz/Presentation Method: A doughnut chart using Chart.js.
+        - Interaction: Clicking a segment filters the list of commands.
+        - Justification: A chart offers a more immediate and engaging overview than a table. The filtering interaction connects the high-level summary directly to the detailed command information.
+        - Library/Method: Chart.js (Canvas).
+        - CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body { font-family: 'Noto Sans JP', sans-serif; }
+        .chart-container { position: relative; width: 100%; max-width: 400px; margin-left: auto; margin-right: auto; height: 320px; max-height: 400px; }
+        @media (min-width: 768px) { .chart-container { height: 350px; } }
+        .command-card.hidden { display: none; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto px-4 py-8">
+        
+        <header class="text-center mb-12">
+            <h1 class="text-4xl md:text-5xl font-bold text-slate-900">Google検索コマンド</h1>
+            <h2 class="text-2xl md:text-3xl font-bold text-blue-600">インタラクティブ・ガイド with Gemini</h2>
+            <p class="mt-4 max-w-3xl mx-auto text-slate-600">
+                基本的な演算子から、AIによるクエリ自動生成、そしてインタラクティブなクエリ作成まで。あなたの検索スキルを飛躍させるための決定版ツールです。
+            </p>
+        </header>
+
+        <div class="flex flex-col md:flex-row gap-8">
+            <aside class="md:w-1/4 lg:w-1/5 md:sticky top-8 self-start">
+                <nav id="navigation-menu" class="bg-white p-4 rounded-lg shadow-md">
+                    <h3 class="font-bold text-lg mb-4 border-b pb-2">ナビゲーション</h3>
+                    <ul class="space-y-2"></ul>
+                </nav>
+            </aside>
+
+            <main class="md:w-3/4 lg:w-4/5">
+                <section id="section-reliability" class="mb-12 bg-white p-6 rounded-lg shadow-md">
+                    <h3 class="text-2xl font-bold mb-4 text-center">演算子の信頼性</h3>
+                    <p class="text-center text-slate-600 mb-6">全てのコマンドが期待通りに機能するわけではありません。以下のチャートで各コマンドの現在のステータスを確認し、セグメントをクリックして結果を絞り込めます。</p>
+                    <div class="chart-container">
+                        <canvas id="reliabilityChart"></canvas>
+                    </div>
+                    <div id="filter-status" class="text-center mt-4 text-slate-600 font-semibold"></div>
+                </section>
+                
+                <section id="interactive-query-builder" class="my-12">
+                     <h3 class="text-3xl font-bold mb-6 text-slate-900 border-l-4 border-blue-600 pl-4">🔧 インタラクティブ・クエリビルダー</h3>
+                     <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="mb-4 text-slate-600">以下のビルダーを使って、検索コマンドを組み合わせたカスタムクエリを作成しましょう。</p>
+                        <div class="bg-slate-100 p-4 rounded-lg mb-4">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">作成中のクエリ:</label>
+                            <div id="builder-query-display" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-md font-mono text-sm min-h-[40px] flex items-center"></div>
+                            <div class="flex items-center justify-end mt-2 gap-2">
+                                <button id="builder-clear" class="bg-slate-500 text-white px-4 py-1.5 rounded-md hover:bg-slate-600 text-sm">クリア</button>
+                                <button id="builder-copy" class="bg-slate-200 text-slate-700 px-4 py-1.5 rounded-md hover:bg-slate-300 text-sm">コピー</button>
+                                <button id="builder-search" class="bg-green-600 text-white px-4 py-1.5 rounded-md hover:bg-green-700 text-sm font-semibold">このクエリで検索</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="builder-control">
+                                <label class="block text-sm font-medium text-slate-700">キーワードを追加</label>
+                                <div class="flex gap-2 mt-1">
+                                    <input type="text" id="builder-keyword" placeholder="例: 東京 グルメ" class="w-full builder-input">
+                                    <button data-type="keyword" class="builder-add-btn">追加</button>
+                                </div>
+                            </div>
+                            <div class="builder-control">
+                                <label class="block text-sm font-medium text-slate-700">完全一致 <code>""</code></label>
+                                <div class="flex gap-2 mt-1">
+                                    <input type="text" id="builder-exact" placeholder="例: "猿が空から落ちる"" class="w-full builder-input">
+                                    <button data-type="exact" class="builder-add-btn">追加</button>
+                                </div>
+                            </div>
+                            <div class="builder-control">
+                                <label class="block text-sm font-medium text-slate-700">除外 <code>-</code></label>
+                                <div class="flex gap-2 mt-1">
+                                    <input type="text" id="builder-exclude" placeholder="例: 車" class="w-full builder-input">
+                                    <button data-type="exclude" class="builder-add-btn">追加</button>
+                                </div>
+                            </div>
+                             <div class="builder-control">
+                                <label class="block text-sm font-medium text-slate-700">サイト内検索 <code>site:</code></label>
+                                <div class="flex gap-2 mt-1">
+                                    <input type="text" id="builder-site" placeholder="例: example.com" class="w-full builder-input">
+                                    <button data-type="site" class="builder-add-btn">追加</button>
+                                </div>
+                            </div>
+                            <div class="builder-control">
+                                <label class="block text-sm font-medium text-slate-700">ファイル形式 <code>filetype:</code></label>
+                                <div class="flex gap-2 mt-1">
+                                    <input type="text" id="builder-filetype" placeholder="例: pdf" class="w-full builder-input">
+                                    <button data-type="filetype" class="builder-add-btn">追加</button>
+                                </div>
+                            </div>
+                            <div class="builder-control">
+                                <label class="block text-sm font-medium text-slate-700">タイトル内検索 <code>intitle:</code></label>
+                                <div class="flex gap-2 mt-1">
+                                    <input type="text" id="builder-intitle" placeholder="例: ガイド" class="w-full builder-input">
+                                    <button data-type="intitle" class="builder-add-btn">追加</button>
+                                </div>
+                            </div>
+                        </div>
+                     </div>
+                </section>
+                
+                <section id="ai-query-builder" class="my-12">
+                    <h3 class="text-3xl font-bold mb-6 text-slate-900 border-l-4 border-blue-600 pl-4">✨ AIクエリビルダー (Gemini)</h3>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="mb-4 text-slate-600">ここに探したい内容を日本語で入力してください。Geminiが最適な検索クエリを提案します。</p>
+                        <textarea id="ai-prompt" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" rows="3" placeholder="例：日本のIT企業が発表した、AIに関するPDF形式のプレスリリースを探したい。ただし、2023年以降のものに限定する。"></textarea>
+                        <div class="flex items-center justify-end mt-4">
+                            <div id="ai-loader" class="loader mr-4 hidden"></div>
+                            <button id="generate-ai-query" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 font-semibold">クエリを生成</button>
+                        </div>
+                        <div id="ai-result-container" class="mt-4 hidden">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">生成されたクエリ：</label>
+                            <div class="flex gap-2">
+                                <input id="ai-generated-query" type="text" readonly class="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-md font-mono text-sm">
+                                <button id="copy-ai-query" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-md hover:bg-slate-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 whitespace-nowrap">コピー</button>
+                                <button id="search-ai-query" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 whitespace-nowrap">検索</button>
+                            </div>
+                            <p id="ai-error" class="text-red-500 text-sm mt-2"></p>
+                        </div>
+                    </div>
+                </section>
+                
+                <div id="commands-container" class="space-y-6">
+                </div>
+
+                <section id="section-advanced" class="mt-12">
+                    <h3 class="text-3xl font-bold mb-6 text-slate-900 border-l-4 border-blue-600 pl-4">高度な検索シナリオ</h3>
+                    <p class="mb-6 text-slate-600">個々のコマンドを組み合わせることで、専門的なタスクを効率的に実行できます。以下のタブから、あなたの目的に合った「レシピ」を探してみてください。</p>
+                     <div id="advanced-scenarios-container"></div>
+                </section>
+                
+                <section id="section-dorking" class="mt-12 bg-red-100 border-l-4 border-red-500 text-red-700 p-6 rounded-lg shadow-md">
+                    <h3 class="text-2xl font-bold mb-4">倫理的注意：Google Dorkingについて</h3>
+                    <p class="text-red-800">高度な検索技術は、意図せず公開されている機密情報を見つけてしまう可能性があります（Google Dorking）。検索自体は合法ですが、権限のないシステムやデータにアクセスすることは<strong>違法行為</strong>です。このツールは、あくまで情報検索スキル向上のために、倫理的かつ合法的な範囲で使用してください。</p>
+                </section>
+
+            </main>
+        </div>
+    </div>
+
+    <footer class="text-center p-6 mt-12 bg-slate-800 text-slate-300">
+        <p>&copy; 2024 インタラクティブ・ガイド. All Rights Reserved.</p>
+    </footer>
+
+    <script>
+        const commandsData = [
+            { name: '""', title: '完全一致', category: '基本', status: '動作中', description: 'ダブルクオーテーションで囲んだフレーズと完全に一致し、語順もそのままの結果を検索します。', example: '"猿が空から落ちる"' },
+            { name: '-', title: '除外', category: '基本', status: '動作中', description: 'ハイフンの直後に指定したキーワードを含むページを検索結果から除外します。', example: 'ジャガー 速度 -車' },
+            { name: 'OR / |', title: 'いずれかを含む', category: '基本', status: '動作中', description: '指定したキーワードのいずれかを含むページを検索します。ORは大文字で入力する必要があります。', example: '有機EL OR OLED' },
+            { name: 'AND', title: 'すべてを含む', category: '基本', status: '動作中', description: '指定したキーワードをすべて含むページを検索します（通常はスペースで代用可能）。', example: '城 AND 遺跡' },
+            { name: '*', title: 'ワイルドカード', category: '基本', status: '動作中', description: 'アスタリスクを不明な単語やフレーズのプレースホルダーとして使用します。', example: '真実はいつも *' },
+            { name: '()', title: 'グループ化', category: '基本', status: '動作中', description: '複数の検索条件をまとめて、検索の優先順位を制御します。', example: '(渋谷 OR 品川) グルメ' },
+            { name: '..', title: '数値範囲', category: '基本', status: '動作中', description: '2つの数値の間にドットを2つ入れることで、その範囲内の数値を検索します。', example: 'カメラ $500..$1000' },
+            { name: 'site:', title: 'サイト内検索', category: 'サイト・ファイル', status: '動作中', description: '指定したウェブサイト、ドメイン、またはURLプレフィックス内のみを検索します。', example: 'site:caa.go.jp "消費者白書"' },
+            { name: 'filetype: / ext:', title: 'ファイル形式', category: 'サイト・ファイル', status: '動作中', description: '指定したファイル形式（pdf, docx, pptxなど）の結果のみを検索します。', example: '研究報告書 filetype:pdf' },
+            { name: 'cache:', title: 'キャッシュ表示', category: 'サイト・ファイル', status: '動作中', description: 'Googleが最後にインデックスした時点のページのバージョン（キャッシュ）を表示します。', example: 'cache:example.com' },
+            { name: 'intitle:', title: 'タイトル内検索', category: '対象指定', status: '動作中', description: 'ページのタイトルに指定したキーワードのいずれかを含むページを検索します。', example: 'intitle:SEO ガイド' },
+            { name: 'allintitle:', title: 'タイトル内検索 (全て)', category: '対象指定', status: '動作中', description: 'ページのタイトルに指定したキーワードの全てを含むページを検索します。', example: 'allintitle:Web制作会社 東京' },
+            { name: 'inurl:', title: 'URL内検索', category: '対象指定', status: '動作中', description: 'ページのURLに指定したキーワードのいずれかを含むページを検索します。', example: 'inurl:blog "ゲスト投稿"' },
+            { name: 'allinurl:', title: 'URL内検索 (全て)', category: '対象指定', status: '動作中', description: 'ページのURLに指定したキーワードの全てを含むページを検索します。', example: 'allinurl:apple iphone' },
+            { name: 'intext:', title: '本文内検索', category: '対象指定', status: '動作中', description: 'ページの本文に指定したキーワードのいずれかを含むページを検索します。', example: 'intext:"スポンサー記事"' },
+            { name: 'allintext:', title: '本文内検索 (全て)', category: '対象指定', status: '動作中', description: 'ページの本文に指定したキーワードの全てを含むページを検索します。', example: 'allintext:犬 猫 しつけ' },
+            { name: 'related:', title: '関連サイト', category: 'サイト・ファイル', status: '信頼性が低い', description: '指定したURLと関連性があるとGoogleが判断したサイトを検索します。', example: 'related:toyota.jp' },
+            { name: 'inanchor:', title: 'アンカーテキスト', category: '対象指定', status: '信頼性が低い', description: 'ページへのリンクのアンカーテキストにキーワードを含むページを検索します。', example: 'inanchor:"詳しくはこちら"' },
+            { name: 'link:', title: '被リンク元', category: 'サイト・ファイル', status: '廃止済み', description: '指定したページにリンクしているページを検索します。現在は機能しません。', example: 'link:example.com' },
+            { name: 'info:', title: 'サイト情報', category: 'サイト・ファイル', status: '廃止済み', description: 'サイトに関する情報を表示します。現在は機能しません。', example: 'info:example.com' },
+        ];
+
+        const advancedScenarios = [
+            {
+                title: 'SEO・マーケティング',
+                scenarios: [
+                    { name: '競合のコンテンツ分析', query: 'site:competitor.com (intitle:ガイド OR intitle:事例)' },
+                    { name: 'ゲスト投稿先の発見', query: '[あなたのニッチ] intitle:"寄稿者募集" OR inurl:guest-post' },
+                    { name: 'リンクされていないブランド言及の発見', query: 'intext:"あなたのブランド名" -site:yourwebsite.com -site:twitter.com' },
+                    { name: '非セキュアページの監査', query: 'site:yourwebsite.com -inurl:https' },
+                ]
+            },
+            {
+                title: '学術研究',
+                scenarios: [
+                    { name: '政府・大学の一次情報源を探す', query: '"気候変動 報告書" filetype:pdf (site:.gov OR site:.edu)' },
+                    { name: '特定の学術論文を探す', query: '"機械学習" "倫理" filetype:pdf site:acm.org' },
+                    { name: '包括的な文献レビュー', query: '("深層学習" OR "ニューラルネットワーク") filetype:pdf' },
+                ]
+            },
+            {
+                title: '一般ユーザー',
+                scenarios: [
+                    { name: '特定の価格帯で製品を探す', query: '"ワイヤレスイヤホン" 10000円..30000円 -site:amazon.co.jp' },
+                    { name: '製品マニュアルを探す', query: '"製品型番" (マニュアル OR 取扱説明書) filetype:pdf' },
+                    { name: '特定のレシピを探す', query: 'パスタ レシピ -クックパッド' },
+                ]
+            }
+        ];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const commandsContainer = document.getElementById('commands-container');
+            const navigationMenu = document.querySelector('#navigation-menu ul');
+            
+            // Common styles for builder
+            document.querySelectorAll('.builder-input').forEach(el => el.className += ' w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500');
+            document.querySelectorAll('.builder-add-btn').forEach(el => el.className += ' bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 whitespace-nowrap text-sm');
+
+            const navLinks = [
+                { id: 'section-reliability', text: '信頼性チャート' },
+                { id: 'interactive-query-builder', text: 'クエリビルダー' },
+                { id: 'ai-query-builder', text: 'AIクエリビルダー' },
+                ...[...new Set(commandsData.map(cmd => cmd.category))].map(cat => ({
+                    id: `section-${cat}`,
+                    text: { '基本': '基本コマンド', '対象指定': '対象指定コマンド', 'サイト・ファイル': 'サイト・ファイルコマンド' }[cat] || cat
+                })),
+                { id: 'section-advanced', text: '高度なシナリオ' }
+            ];
+
+            navLinks.forEach(link => {
+                const navItem = document.createElement('li');
+                navItem.innerHTML = `<a href="#${link.id}" class="block px-3 py-2 rounded-md hover:bg-blue-50 text-slate-700 font-medium">${link.text}</a>`;
+                navigationMenu.appendChild(navItem);
+            });
+            
+            const categories = [...new Set(commandsData.map(cmd => cmd.category))];
+            
+            categories.forEach(category => {
+                const categoryId = `section-${category}`;
+                
+                const categoryTitle = document.createElement('h3');
+                categoryTitle.id = categoryId;
+                categoryTitle.className = "text-3xl font-bold mb-6 text-slate-900 border-l-4 border-blue-600 pl-4";
+                categoryTitle.textContent = { '基本': '基本の絞り込み', '対象指定': '検索対象の指定', 'サイト・ファイル': 'サイト・ファイル' }[category] || category;
+                commandsContainer.appendChild(categoryTitle);
+                
+                commandsData.filter(cmd => cmd.category === category).forEach(command => {
+                    const statusColors = {
+                        '動作中': 'bg-green-100 text-green-800 border-green-400',
+                        '信頼性が低い': 'bg-yellow-100 text-yellow-800 border-yellow-400',
+                        '廃止済み': 'bg-red-100 text-red-800 border-red-400'
+                    };
+
+                    const card = document.createElement('div');
+                    card.className = `command-card bg-white p-6 rounded-lg shadow-md border-l-4 ${statusColors[command.status]}`;
+                    card.dataset.status = command.status;
+                    
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h4 class="text-xl font-bold text-slate-900">${command.title} <code class="text-lg bg-slate-200 text-blue-700 px-2 py-1 rounded-md">${command.name}</code></h4>
+                                <p class="mt-2 text-slate-600">${command.description}</p>
+                            </div>
+                            <span class="text-sm font-semibold px-3 py-1 rounded-full whitespace-nowrap ${statusColors[command.status]}">${command.status}</span>
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-slate-200">
+                            <label for="input-${command.name.replace(/\s|\/|\|/g, '')}" class="block text-sm font-medium text-slate-700 mb-1">試してみる：</label>
+                            <div class="flex gap-2">
+                                <input id="input-${command.name.replace(/\s|\/|\|/g, '')}" type="text" value="${command.example}" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                                <button class="search-btn bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 whitespace-nowrap">検索</button>
+                            </div>
+                        </div>
+                    `;
+                    commandsContainer.appendChild(card);
+                });
+            });
+
+            document.querySelectorAll('.search-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const input = e.target.previousElementSibling;
+                    const query = encodeURIComponent(input.value);
+                    window.open(`https://www.google.com/search?q=${query}`, '_blank');
+                });
+            });
+
+            renderReliabilityChart();
+            setupInteractiveBuilder();
+            setupAIQueryBuilder();
+            renderAdvancedScenarios();
+        });
+
+        function renderReliabilityChart() {
+            const ctx = document.getElementById('reliabilityChart').getContext('2d');
+            const statusCounts = commandsData.reduce((acc, cmd) => {
+                acc[cmd.status] = (acc[cmd.status] || 0) + 1;
+                return acc;
+            }, {});
+
+            const data = {
+                labels: Object.keys(statusCounts),
+                datasets: [{
+                    data: Object.values(statusCounts),
+                    backgroundColor: [ 'rgba(34, 197, 94, 0.7)', 'rgba(234, 179, 8, 0.7)', 'rgba(239, 68, 68, 0.7)' ],
+                    borderColor: [ 'rgba(22, 163, 74, 1)', 'rgba(202, 138, 4, 1)', 'rgba(220, 38, 38, 1)' ],
+                    borderWidth: 1
+                }]
+            };
+
+            const reliabilityChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (context) => `${context.label}: ${context.parsed}個` } } }
+                }
+            });
+
+            document.getElementById('reliabilityChart').onclick = (evt) => {
+                const activePoints = reliabilityChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+                const filterStatusEl = document.getElementById('filter-status');
+                if (activePoints.length) {
+                    const { index } = activePoints[0];
+                    const label = reliabilityChart.data.labels[index];
+                    if (filterStatusEl.dataset.currentFilter === label) {
+                        filterCommands(null);
+                        filterStatusEl.textContent = '';
+                        filterStatusEl.dataset.currentFilter = '';
+                    } else {
+                        filterCommands(label);
+                        filterStatusEl.textContent = `フィルタ中: ${label}`;
+                        filterStatusEl.dataset.currentFilter = label;
+                    }
+                }
+            };
+        }
+
+        function filterCommands(status) {
+            document.querySelectorAll('.command-card').forEach(card => {
+                card.classList.toggle('hidden', status !== null && card.dataset.status !== status);
+            });
+        }
+        
+        function setupInteractiveBuilder() {
+            let queryParts = [];
+            const display = document.getElementById('builder-query-display');
+
+            const updateDisplay = () => {
+                display.textContent = queryParts.join(' ');
+            };
+
+            document.querySelectorAll('.builder-add-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const type = e.target.dataset.type;
+                    const input = document.getElementById(`builder-${type}`);
+                    const value = input.value.trim();
+                    if (!value) return;
+
+                    let part;
+                    switch (type) {
+                        case 'keyword': part = value; break;
+                        case 'exact': part = `"${value}"`; break;
+                        case 'exclude': part = `-${value}`; break;
+                        case 'site': part = `site:${value}`; break;
+                        case 'filetype': part = `filetype:${value}`; break;
+                        case 'intitle': part = `intitle:${value}`; break;
+                    }
+                    queryParts.push(part);
+                    updateDisplay();
+                    input.value = '';
+                });
+            });
+
+            document.getElementById('builder-clear').addEventListener('click', () => {
+                queryParts = [];
+                updateDisplay();
+            });
+
+            document.getElementById('builder-copy').addEventListener('click', () => {
+                const queryText = queryParts.join(' ');
+                navigator.clipboard.writeText(queryText).then(() => {
+                    const btn = document.getElementById('builder-copy');
+                    btn.textContent = 'コピー完了!';
+                    setTimeout(() => { btn.textContent = 'コピー'; }, 2000);
+                });
+            });
+            
+            document.getElementById('builder-search').addEventListener('click', () => {
+                const query = encodeURIComponent(queryParts.join(' '));
+                if (query) {
+                    window.open(`https://www.google.com/search?q=${query}`, '_blank');
+                }
+            });
+        }
+        
+        function renderAdvancedScenarios() {
+            const container = document.getElementById('advanced-scenarios-container');
+            const tabContainer = document.createElement('div');
+            tabContainer.className = "flex border-b border-slate-200 mb-4";
+            const contentContainer = document.createElement('div');
+            
+            advancedScenarios.forEach((category, index) => {
+                const tab = document.createElement('button');
+                tab.className = `tab-btn px-6 py-3 -mb-px text-lg font-medium border-b-2 ${index === 0 ? 'text-blue-600 border-blue-600' : 'text-slate-500 border-transparent hover:text-blue-500'}`;
+                tab.textContent = category.title;
+                tab.dataset.target = `tab-content-${index}`;
+                tabContainer.appendChild(tab);
+                
+                const content = document.createElement('div');
+                content.id = `tab-content-${index}`;
+                content.className = `tab-content space-y-4 ${index !== 0 ? 'hidden' : ''}`;
+                
+                category.scenarios.forEach(scenario => {
+                    const scenarioEl = document.createElement('div');
+                    scenarioEl.className = "bg-white p-4 rounded-lg shadow-sm";
+                    scenarioEl.innerHTML = `
+                        <p class="font-semibold text-slate-700">${scenario.name}</p>
+                        <div class="flex gap-2 mt-2">
+                            <input type="text" value="${scenario.query.replace(/\[あなたのニッチ\]/g, 'マーケティング').replace(/\[あなたのブランド名\]/g, 'MyBrand').replace(/yourwebsite\.com/g, 'example.com')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm">
+                            <button class="search-btn bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 whitespace-nowrap">検索</button>
+                        </div>`;
+                    content.appendChild(scenarioEl);
+                });
+                contentContainer.appendChild(content);
+            });
+            
+            container.appendChild(tabContainer);
+            container.appendChild(contentContainer);
+
+            container.addEventListener('click', function(e) {
+                if (e.target.classList.contains('tab-btn')) {
+                    container.querySelectorAll('.tab-btn').forEach(btn => btn.className = btn.className.replace('text-blue-600 border-blue-600', 'text-slate-500 border-transparent'));
+                    e.target.className = e.target.className.replace('text-slate-500 border-transparent', 'text-blue-600 border-blue-600');
+                    container.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+                    document.getElementById(e.target.dataset.target).classList.remove('hidden');
+                }
+            });
+        }
+        
+        function setupAIQueryBuilder() {
+            const generateBtn = document.getElementById('generate-ai-query');
+            const promptTextarea = document.getElementById('ai-prompt');
+            const loader = document.getElementById('ai-loader');
+            const resultContainer = document.getElementById('ai-result-container');
+            const resultInput = document.getElementById('ai-generated-query');
+            const errorP = document.getElementById('ai-error');
+            const copyBtn = document.getElementById('copy-ai-query');
+            const searchBtn = document.getElementById('search-ai-query');
+
+            generateBtn.addEventListener('click', async () => {
+                const userPrompt = promptTextarea.value.trim();
+                if (!userPrompt) {
+                    errorP.textContent = '検索したい内容を入力してください。';
+                    resultContainer.classList.remove('hidden');
+                    return;
+                }
+
+                loader.classList.remove('hidden');
+                generateBtn.disabled = true;
+                resultContainer.classList.add('hidden');
+                errorP.textContent = '';
+                
+                try {
+                    const usableCommands = commandsData.filter(cmd => cmd.status === '動作中').map(cmd => `${cmd.name} (${cmd.title})`).join(', ');
+                    const fullPrompt = `あなたはGoogle検索の専門家です。ユーザーの以下の要望に最も合致する、効果的なGoogle検索クエリを一つだけ生成してください。\n\n利用可能な検索コマンドは以下の通りです：\n${usableCommands}\n\nルール：\n- 上記のコマンドのみを使用してください。\n- 生成するのは検索クエリの文字列のみです。説明や前置きは一切不要です。\n- クエリは単一行で返してください。\n\nユーザーの要望：\n「${userPrompt}」`;
+                    const chatHistory = [{ role: "user", parts: [{ text: fullPrompt }] }];
+                    const payload = { contents: chatHistory };
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
+                    
+                    const result = await response.json();
+
+                    if (result.candidates?.[0]?.content?.parts?.[0]) {
+                        const text = result.candidates[0].content.parts[0].text;
+                        resultInput.value = text.trim();
+                        resultContainer.classList.remove('hidden');
+                    } else {
+                        throw new Error('AIから有効な応答がありませんでした。');
+                    }
+                } catch (err) {
+                    errorP.textContent = `エラーが発生しました: ${err.message}`;
+                    resultContainer.classList.remove('hidden');
+                    resultInput.value = '';
+                } finally {
+                    loader.classList.add('hidden');
+                    generateBtn.disabled = false;
+                }
+            });
+
+            copyBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(resultInput.value).then(() => {
+                    copyBtn.textContent = 'コピー完了!';
+                    setTimeout(() => { copyBtn.textContent = 'コピー'; }, 2000);
+                });
+            });
+
+            searchBtn.addEventListener('click', () => {
+                const query = encodeURIComponent(resultInput.value);
+                if (query) window.open(`https://www.google.com/search?q=${query}`, '_blank');
+            });
+        }
+
+    </script>
+</body>
+</html>
